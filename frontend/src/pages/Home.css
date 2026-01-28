@@ -1,0 +1,143 @@
+.home {
+  display: grid;
+  gap: 1.5rem;
+  text-align: center;
+}
+
+.home-header {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+  color: #9aa4b2;
+  margin: 0;
+}
+
+.home h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+}
+
+.subhead {
+  margin: 0;
+  color: #475569;
+}
+
+.dropzone {
+  position: relative;
+  border-radius: 20px;
+  padding: 2.5rem 3rem;
+  border: 2px dashed #cbd5f5;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.dropzone.is-dragging {
+  border-color: rgba(125, 211, 252, 0.9);
+  box-shadow: 0 20px 45px rgba(14, 165, 233, 0.2);
+  transform: translateY(-2px);
+}
+
+.dropzone-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.dropzone-hint {
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.file-meta {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.file-name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.submit-row {
+  display: flex;
+  justify-content: center;
+}
+
+.existing-data {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+}
+
+.video-preview {
+  display: flex;
+  justify-content: center;
+}
+
+.video-preview.is-clickable {
+  cursor: pointer;
+}
+
+.video-thumb {
+  width: min(720px, 100%);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.upload-error,
+.upload-message {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.upload-error {
+  color: #dc2626;
+}
+
+.upload-message {
+  color: #16a34a;
+}
+
+@media (max-width: 600px) {
+  .dropzone {
+    padding: 2rem 1.5rem;
+  }
+
+  .file-meta {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+.dropzone-label {
+  display: grid;
+  gap: 0.4rem;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+/* frontend/src/pages/Home.css */
+.submit-button {
+  justify-self: center;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.submit-button:hover {
+  background: #f8fafc;
+}

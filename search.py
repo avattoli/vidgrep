@@ -73,9 +73,21 @@ def extract_video_clip(video_path: Path, start_time: float, end_time: float, out
         return False
     
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-    if not writer.isOpened():
+
+    # Prefer H.264 (avc1) for browser playback, fallback to mp4v if unavailable
+    fourcc_candidates = ['avc1', 'H264', 'X264', 'mp4v']
+    writer = None
+    for fourcc_name in fourcc_candidates:
+        fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
+        trial_path = output_path.with_suffix('.mp4')
+        writer = cv2.VideoWriter(str(trial_path), fourcc, fps, (width, height))
+        if writer.isOpened():
+            output_path = trial_path
+            break
+        writer.release()
+        writer = None
+
+    if writer is None or not writer.isOpened():
         cap.release()
         return False
     
@@ -93,7 +105,9 @@ def extract_video_clip(video_path: Path, start_time: float, end_time: float, out
     
     cap.release()
     writer.release()
-    return frames_written > 0
+    success = frames_written > 0
+    writer.release()
+    return success
 
 
 def search_videos(query_text: str, top_k: int = None, vector_store: VectorStore = None) -> List[Dict]:
@@ -196,7 +210,7 @@ def get_preview_frame(result: Dict) -> Image.Image:
     return Image.open(frame_path)
 
 
-def save_results_to_folder(results: List[Dict], query_text: str):
+def save_results_to_folder(results: List[Dict], query_text: str, use_hash_names: bool = False):
     """
     Save matching frame images to results folder.
     Clears the results folder before adding new images.
@@ -204,6 +218,7 @@ def save_results_to_folder(results: List[Dict], query_text: str):
     Args:
         results: List of result dicts from search_videos
         query_text: The search query (used for naming)
+        use_hash_names: If True, use a provided 'hash_name' field for filenames
     """
     results_dir = config.RESULTS_DIR
     
@@ -238,7 +253,10 @@ def save_results_to_folder(results: List[Dict], query_text: str):
         seconds = int(timestamp % 60)
         time_str = f"{minutes:02d}_{seconds:02d}"
         
-        filename = f"{i:02d}_{video_id}_{time_str}_score{score:.3f}.jpg"
+        if use_hash_names and result.get('hash_name'):
+            filename = f"{result['hash_name']}.jpg"
+        else:
+            filename = f"{i:02d}_{video_id}_{time_str}_score{score:.3f}.jpg"
         dest_path = results_dir / filename
         
         try:
@@ -250,7 +268,7 @@ def save_results_to_folder(results: List[Dict], query_text: str):
     print(f"\nResults saved to: {results_dir}")
 
 
-def save_results_videos(results: List[Dict], query_text: str, clip_seconds: float = 10.0):
+def save_results_videos(results: List[Dict], query_text: str, clip_seconds: float = 10.0, use_hash_names: bool = False):
     """
     Save matching video clips to results_video folder.
     Clips are centered around the result timestamp.
@@ -289,7 +307,10 @@ def save_results_videos(results: List[Dict], query_text: str, clip_seconds: floa
         seconds = int(timestamp % 60)
         time_str = f"{minutes:02d}_{seconds:02d}"
         
-        filename = f"{i:02d}_{video_id}_{time_str}_score{score:.3f}.mp4"
+        if use_hash_names and result.get('hash_name'):
+            filename = f"{result['hash_name']}.mp4"
+        else:
+            filename = f"{i:02d}_{video_id}_{time_str}_score{score:.3f}.mp4"
         dest_path = results_dir / filename
         
         ok = extract_video_clip(video_path, start_time, end_time, dest_path)
