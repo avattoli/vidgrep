@@ -19,9 +19,10 @@ const metadataPath = path.join(metadataDir, 'metadata.json')
 const indexPath = path.join(indexDir, 'faiss.index')
 const resultsDir = path.join(projectRoot, 'results')
 const resultsVideoDir = path.join(projectRoot, 'results_video')
+const uploadsDir = path.join(dataDir, 'uploads')
 const videoExtensions = new Set(['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv'])
 
-for (const dir of [dataDir, videosDir, framesDir, indexDir, metadataDir, resultsDir, resultsVideoDir]) {
+for (const dir of [dataDir, videosDir, framesDir, indexDir, metadataDir, resultsDir, resultsVideoDir, uploadsDir]) {
   fs.mkdirSync(dir, { recursive: true })
 }
 
@@ -78,6 +79,96 @@ const runPython = (args, { quiet = true } = {}) =>
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
+})
+
+// ------------ In-memory ingest job queue ------------
+const jobs = new Map()
+const queue = []
+let processing = false
+
+const enqueueIngest = (filePath, originalName) => {
+  const jobId = crypto.randomUUID().replace(/-/g, '')
+  jobs.set(jobId, { id: jobId, status: 'queued', filePath, originalName, error: null })
+  queue.push(jobId)
+  processQueue()
+  return jobId
+}
+
+const processQueue = () => {
+  if (processing) return
+  const jobId = queue.shift()
+  if (!jobId) return
+  const job = jobs.get(jobId)
+  if (!job) return processQueue()
+  processing = true
+  jobs.set(jobId, { ...job, status: 'processing' })
+
+  const proc = spawn(pythonBin, ['ingest.py', job.filePath], {
+    cwd: projectRoot,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  let stderr = ''
+  proc.stderr.on('data', (d) => (stderr += d.toString()))
+
+  proc.on('close', (code) => {
+    if (code === 0) {
+      jobs.set(jobId, { ...job, status: 'done', error: null })
+    } else {
+      jobs.set(jobId, { ...job, status: 'error', error: stderr || `Exited ${code}` })
+    }
+    processing = false
+    processQueue()
+  })
+}
+
+app.get('/api/job/:id', (req, res) => {
+  const job = jobs.get(req.params.id)
+  if (!job) return res.status(404).json({ error: 'Not found' })
+  res.json(job)
+})
+
+// ------------ Chunked upload endpoints ------------
+const activeUploads = new Map()
+
+app.post('/api/upload/init', (req, res) => {
+  const { filename = 'upload.mp4' } = req.body || {}
+  const ext = path.extname(filename) || '.mp4'
+  const uploadId = crypto.randomUUID().replace(/-/g, '')
+  const tempPath = path.join(uploadsDir, `${uploadId}${ext}.part`)
+  activeUploads.set(uploadId, { filename, tempPath, ext, received: 0 })
+  res.json({ uploadId, chunkSize: 5 * 1024 * 1024 })
+})
+
+app.post('/api/upload/chunk', express.raw({ limit: '50mb', type: '*/*' }), (req, res) => {
+  const uploadId = req.headers['upload-id']
+  const meta = activeUploads.get(uploadId)
+  if (!meta) return res.status(400).json({ error: 'Unknown uploadId' })
+  try {
+    fs.appendFileSync(meta.tempPath, req.body)
+    meta.received += Buffer.byteLength(req.body)
+    res.json({ ok: true, received: meta.received })
+  } catch (err) {
+    return res.status(500).json({ error: String(err) })
+  }
+})
+
+app.post('/api/upload/complete', (req, res) => {
+  const { uploadId } = req.body || {}
+  const meta = activeUploads.get(uploadId)
+  if (!meta) return res.status(400).json({ error: 'Unknown uploadId' })
+
+  const unique = crypto.randomUUID().replace(/-/g, '')
+  const finalPath = path.join(videosDir, `${unique}${meta.ext || '.mp4'}`)
+  try {
+    fs.renameSync(meta.tempPath, finalPath)
+  } catch (err) {
+    return res.status(500).json({ error: String(err) })
+  }
+
+  activeUploads.delete(uploadId)
+  const jobId = enqueueIngest(finalPath, meta.filename)
+  res.json({ ok: true, videoId: unique, jobId })
 })
 
 app.get('/api/status', (_req, res) => {

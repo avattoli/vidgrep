@@ -107,7 +107,7 @@ def process_video(video_path: Path, embedding_model: EmbeddingModel, vector_stor
         print(f"No frames extracted from {video_path.name}")
         return 0
     
-    batch_size = 32
+    batch_size = int(os.getenv("BATCH_SIZE", "32"))
     all_embeddings = []
     metadata_list = []
     

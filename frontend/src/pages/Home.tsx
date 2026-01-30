@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import './Home.css'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5175'
 
 export default function Home() {
     const [isDragging, setIsDragging] = useState(false)
@@ -14,6 +16,10 @@ export default function Home() {
     const [isUploaded, setIsUploaded] = useState(false)
     const [hasExistingData, setHasExistingData] = useState(false)
     const [existingCount, setExistingCount] = useState<number | null>(null)
+    const [uploadProgress, setUploadProgress] = useState<number>(0)
+    const [jobStatus, setJobStatus] = useState<string | null>(null)
+    const [jobId, setJobId] = useState<string | null>(null)
+    const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const navigate = useNavigate()
 
     useEffect(() => {
@@ -31,7 +37,7 @@ export default function Home() {
 
         const loadStatus = async () => {
             try {
-                const response = await fetch('http://localhost:5175/api/status', {
+        const response = await fetch('http://localhost:5175/api/status', {
                     signal: controller.signal
                 })
                 const payload = await response.json().catch(() => ({}))
@@ -93,23 +99,84 @@ export default function Home() {
         setIsUploading(true)
         setUploadError(null)
         setUploadMessage(null)
-
-        const formData = new FormData()
-        formData.append('video', file)
+        setUploadProgress(0)
+        setJobStatus(null)
+        setJobId(null)
 
         try {
-            const response = await fetch('http://localhost:5175/api/ingest', {
+            // 1) init
+            const initRes = await fetch(`${API_BASE}/api/upload/init`, {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: file.name, size: file.size })
             })
-            const payload = await response.json().catch(() => ({}))
+            const initJson = await initRes.json().catch(() => ({}))
+            if (!initRes.ok || !initJson.uploadId || !initJson.chunkSize) {
+                throw new Error(initJson?.error || 'Upload init failed')
+            }
+            const { uploadId, chunkSize } = initJson
 
-            if (!response.ok) {
-                throw new Error(payload?.error || 'Upload failed')
+            // 2) upload chunks
+            const totalChunks = Math.ceil(file.size / chunkSize)
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * chunkSize
+                const end = Math.min(file.size, start + chunkSize)
+                const blob = file.slice(start, end)
+                const chunkRes = await fetch(`${API_BASE}/api/upload/chunk`, {
+                    method: 'POST',
+                    headers: {
+                        'upload-id': uploadId,
+                        'chunk-index': String(i),
+                        'total-chunks': String(totalChunks)
+                    },
+                    body: blob
+                })
+                const chunkJson = await chunkRes.json().catch(() => ({}))
+                if (!chunkRes.ok) {
+                    throw new Error(chunkJson?.error || 'Chunk upload failed')
+                }
+                setUploadProgress(Math.round(((i + 1) / totalChunks) * 100))
             }
 
-            setUploadMessage('Upload complete. Click the preview to ask a question.')
-            setIsUploaded(true)
+            // 3) complete + enqueue ingest job
+            const completeRes = await fetch(`${API_BASE}/api/upload/complete`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uploadId })
+            })
+            const completeJson = await completeRes.json().catch(() => ({}))
+            if (!completeRes.ok || !completeJson.jobId) {
+                throw new Error(completeJson?.error || 'Finalize failed')
+            }
+
+            const job = completeJson.jobId as string
+            setJobId(job)
+            setUploadMessage('Upload complete. Processing...')
+            setIsUploaded(false)
+
+            // 4) poll job status
+            if (jobPollRef.current) clearInterval(jobPollRef.current)
+            jobPollRef.current = setInterval(async () => {
+                try {
+                    const jr = await fetch(`${API_BASE}/api/job/${job}`)
+                    const jj = await jr.json().catch(() => ({}))
+                    if (!jr.ok) return
+                    setJobStatus(jj.status || null)
+                    if (jj.status === 'done') {
+                        setIsUploaded(true)
+                        setUploadMessage('Processing finished. Click the preview to ask a question.')
+                        clearInterval(jobPollRef.current!)
+                        jobPollRef.current = null
+                    }
+                    if (jj.status === 'error') {
+                        setUploadError(jj.error || 'Ingest failed')
+                        clearInterval(jobPollRef.current!)
+                        jobPollRef.current = null
+                    }
+                } catch {
+                    // ignore transient polling errors
+                }
+            }, 2000)
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Upload failed'
             setUploadError(message)
@@ -117,6 +184,12 @@ export default function Home() {
             setIsUploading(false)
         }
     }
+
+    useEffect(() => {
+        return () => {
+            if (jobPollRef.current) clearInterval(jobPollRef.current)
+        }
+    }, [])
 
     return (
         <div className="home">
@@ -184,6 +257,10 @@ export default function Home() {
 
             {uploadError ? <p className="upload-error">{uploadError}</p> : null}
             {uploadMessage ? <p className="upload-message">{uploadMessage}</p> : null}
+            {uploadProgress > 0 && uploadProgress < 100 ? (
+                <p className="upload-progress">Uploading... {uploadProgress}%</p>
+            ) : null}
+            {jobStatus ? <p className="upload-message">Ingest: {jobStatus}</p> : null}
 
 
             {previewUrl ? (

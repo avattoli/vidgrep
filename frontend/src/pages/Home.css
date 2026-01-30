@@ -113,6 +113,12 @@
   color: #16a34a;
 }
 
+.upload-progress {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
 @media (max-width: 600px) {
   .dropzone {
     padding: 2rem 1.5rem;

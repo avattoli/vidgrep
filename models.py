@@ -47,7 +47,7 @@ class EmbeddingModel:
     def __init__(self):
         """Initialize CLIP model and processor."""
         print(f"Loading CLIP model: {config.CLIP_MODEL_NAME}")
-        self.device = config.DEVICE
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         self.model = CLIPModel.from_pretrained(config.CLIP_MODEL_NAME).to(self.device)
         self.model.eval()
