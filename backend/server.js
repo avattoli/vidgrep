@@ -278,7 +278,7 @@ app.post('/api/ingest', upload.single('video'), async (req, res) => {
 })
 
 app.post('/api/search', async (req, res) => {
-  const { query, top_k } = req.body ?? {}
+  const { query, top_k, video_id } = req.body ?? {}
   if (!query) {
     return res.status(400).json({ error: 'query is required' })
   }
@@ -287,6 +287,9 @@ app.post('/api/search', async (req, res) => {
     const args = ['backend/scripts/search_api.py', query]
     if (top_k) {
       args.push('--top-k', String(top_k))
+    }
+    if (video_id) {
+      args.push('--video-id', video_id)
     }
     const { stdout } = await runPython(args)
     const payload = JSON.parse(stdout.trim() || '{}')
@@ -301,6 +304,67 @@ app.post('/api/search', async (req, res) => {
     return res.json({ results: withUrls })
   } catch (error) {
     return res.status(500).json({ error: error.message })
+  }
+})
+
+app.get('/api/videos', (_req, res) => {
+  try {
+    const metaPath = path.join(metadataDir, 'metadata.json')
+    if (!fs.existsSync(metaPath)) return res.json({ videos: [] })
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+    const byId = {}
+    for (const m of meta) {
+      const vid = m.video_id
+      if (!vid) continue
+      if (!byId[vid]) {
+        byId[vid] = { video_id: vid, count: 0, video_path: m.video_path || null }
+      }
+      byId[vid].count += 1
+    }
+    res.json({ videos: Object.values(byId) })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
+  }
+})
+
+app.post('/api/video/:id/delete', (req, res) => {
+  const videoId = req.params.id
+  try {
+    // Delete video file(s)
+    for (const ext of videoExtensions) {
+      const candidate = path.join(videosDir, `${videoId}${ext}`)
+      if (fs.existsSync(candidate)) fs.unlinkSync(candidate)
+    }
+
+    // Delete frames folder
+    const framesPath = path.join(framesDir, videoId)
+    if (fs.existsSync(framesPath)) fs.rmSync(framesPath, { recursive: true, force: true })
+
+    // Update index/metadata in place (targeted removal)
+    const proc = spawn(pythonBin, ['backend/scripts/delete_video.py', videoId], {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stderr = ''
+    let stdout = ''
+    proc.stderr.on('data', (d) => (stderr += d.toString()))
+    proc.stdout.on('data', (d) => (stdout += d.toString()))
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        try {
+          const payload = JSON.parse(stdout || '{}')
+          res.json({ ok: true, ...payload })
+        } catch {
+          res.json({ ok: true })
+        }
+      } else {
+        res.status(500).json({ error: stderr || 'Delete failed' })
+      }
+    })
+  } catch (err) {
+    res.status(500).json({ error: String(err) })
   }
 })
 
