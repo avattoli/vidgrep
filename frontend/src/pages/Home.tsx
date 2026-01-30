@@ -127,7 +127,8 @@ export default function Home() {
                     headers: {
                         'upload-id': uploadId,
                         'chunk-index': String(i),
-                        'total-chunks': String(totalChunks)
+                        'total-chunks': String(totalChunks),
+                        'Content-Type': 'application/octet-stream'
                     },
                     body: blob
                 })

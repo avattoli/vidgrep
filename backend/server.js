@@ -140,13 +140,18 @@ app.post('/api/upload/init', (req, res) => {
   res.json({ uploadId, chunkSize: 5 * 1024 * 1024 })
 })
 
-app.post('/api/upload/chunk', express.raw({ limit: '50mb', type: '*/*' }), (req, res) => {
+// note: expects Content-Type: application/octet-stream so json parser won't run
+app.post('/api/upload/chunk', express.raw({ limit: '100mb', type: 'application/octet-stream' }), (req, res) => {
   const uploadId = req.headers['upload-id']
   const meta = activeUploads.get(uploadId)
   if (!meta) return res.status(400).json({ error: 'Unknown uploadId' })
   try {
-    fs.appendFileSync(meta.tempPath, req.body)
-    meta.received += Buffer.byteLength(req.body)
+    if (!Buffer.isBuffer(req.body)) {
+      return res.status(415).json({ error: 'Chunk must be binary octet-stream' })
+    }
+    const chunk = req.body
+    fs.appendFileSync(meta.tempPath, chunk)
+    meta.received += chunk.length
     res.json({ ok: true, received: meta.received })
   } catch (err) {
     return res.status(500).json({ error: String(err) })
