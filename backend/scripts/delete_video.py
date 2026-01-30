@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import faiss
+import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -33,19 +34,15 @@ def main(video_id: str) -> int:
     # Reconstruct kept vectors
     kept_vectors = []
     for idx in keep_indices:
-        vec = faiss.vector_to_array(index.reconstruct(idx))
-        kept_vectors.append(vec)
+        vec = index.reconstruct(idx)  # returns a 1-D numpy array
+        kept_vectors.append(np.asarray(vec, dtype="float32"))
 
     if kept_vectors:
-        import numpy as np
-
         new_index = faiss.IndexFlatIP(dim)
-        new_index.add(np.vstack(kept_vectors).astype("float32"))
-        faiss.write_index(new_index, str(INDEX_PATH))
+        new_index.add(np.vstack(kept_vectors))
     else:
-        # No vectors left; create empty index
-        empty = faiss.IndexFlatIP(dim)
-        faiss.write_index(empty, str(INDEX_PATH))
+        new_index = faiss.IndexFlatIP(dim)
+    faiss.write_index(new_index, str(INDEX_PATH))
 
     new_metadata = [metadata[i] for i in keep_indices]
     with open(METADATA_PATH, "w") as f:
