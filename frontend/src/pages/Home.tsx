@@ -4,7 +4,7 @@ import './Home.css'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5175'
+const API_BASE = import.meta.env.VITE_API_BASE ?? 'https://vidgrep.onrender.com'
 
 export default function Home() {
     const [isDragging, setIsDragging] = useState(false)
@@ -18,7 +18,7 @@ export default function Home() {
     const [existingCount, setExistingCount] = useState<number | null>(null)
     const [uploadProgress, setUploadProgress] = useState<number>(0)
     const [jobStatus, setJobStatus] = useState<string | null>(null)
-    const [jobId, setJobId] = useState<string | null>(null)
+    const [, setJobId] = useState<string | null>(null)
     const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const navigate = useNavigate()
 
