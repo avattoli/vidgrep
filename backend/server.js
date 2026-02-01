@@ -27,7 +27,24 @@ for (const dir of [dataDir, videosDir, framesDir, indexDir, metadataDir, results
 }
 
 const app = express()
-app.use(cors())
+
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean)
+  .concat(['http://localhost:5173', 'http://localhost:5175', 'https://vidgrep.vercel.app'])
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+    return callback(new Error('Not allowed by CORS'))
+  }
+}
+
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 app.use(express.json({ limit: '10mb' }))
 
 const storage = multer.diskStorage({
@@ -113,6 +130,12 @@ const processQueue = () => {
 
   proc.on('close', (code) => {
     if (code === 0) {
+      // delete original video to save storage
+      try {
+        if (fs.existsSync(job.filePath)) fs.unlinkSync(job.filePath)
+      } catch {
+        // ignore delete errors
+      }
       jobs.set(jobId, { ...job, status: 'done', error: null })
     } else {
       jobs.set(jobId, { ...job, status: 'error', error: stderr || `Exited ${code}` })
