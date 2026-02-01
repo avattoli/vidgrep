@@ -9,6 +9,17 @@
   gap: 0.5rem;
 }
 
+.banner-warning {
+  margin: 0 auto;
+  max-width: 320px;
+  color: #b45309;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.2em;
@@ -48,6 +59,25 @@
   justify-items: center;
 }
 
+.chat-filters {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  align-items: center;
+}
+
+.filter-label {
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.video-select {
+  margin-left: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+}
+
 .chat-input {
   width: min(640px, 100%);
   padding: 0.75rem 1rem;
@@ -71,18 +101,26 @@
   gap: 0.5rem;
 }
 
-.result-video {
+.frame-wrapper {
+  position: relative;
+}
+
+.result-image {
   width: 100%;
   border-radius: 12px;
+  object-fit: cover;
   background: #0f172a;
 }
 
-.result-link {
-  display: inline-block;
-  margin-top: 0.35rem;
-  font-size: 0.9rem;
-  color: #0f172a;
-  text-decoration: underline;
+.timestamp-chip {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #f8fafc;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 0.8rem;
 }
 
 .result-meta {
