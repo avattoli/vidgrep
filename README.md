@@ -17,6 +17,8 @@ The CLIP model downloads on first use.
 
 ## Usage
 
+Live demo: https://vidgrep.vercel.app/ (note: speed may be slow right now)
+
 ### Ingest
 
 ```bash
