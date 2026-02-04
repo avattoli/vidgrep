@@ -48,23 +48,8 @@ for (const dir of [dataDir, videosDir, framesDir, indexDir, metadataDir, results
 
 const app = express()
 
-const allowedOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean)
-  .concat(['http://localhost:5173', 'http://localhost:5175'])
-
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      return callback(null, true)
-    }
-    return callback(new Error('Not allowed by CORS'))
-  }
-}
-
-app.use(cors(corsOptions))
-app.options('*', cors(corsOptions))
+app.use(cors({ origin: true }))
+app.options('*', cors({ origin: true }))
 app.use(express.json({ limit: '10mb' }))
 
 const storage = multer.diskStorage({
