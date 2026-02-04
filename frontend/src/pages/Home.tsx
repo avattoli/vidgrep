@@ -4,7 +4,7 @@ import './Home.css'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+const API_BASE = (import.meta.env.VITE_SERVER_URL || import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const apiUrl = (path: string) => `${API_BASE}${path}`
 
 export default function Home() {

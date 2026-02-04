@@ -3,7 +3,7 @@ import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 import './Chat.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE || ''
+const API_BASE = (import.meta.env.VITE_SERVER_URL || import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
 const apiUrl = (path: string) => `${API_BASE}${path}`
 const assetUrl = (path?: string | null) => {
   if (!path) return null
