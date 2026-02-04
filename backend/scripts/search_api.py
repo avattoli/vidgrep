@@ -7,11 +7,27 @@ import sys
 from pathlib import Path
 
 import cv2
+import os
+import boto3
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from search import search_videos, save_results_videos, save_results_to_folder
+
+S3_BUCKET = os.getenv("S3_BUCKET")
+S3_REGION = os.getenv("S3_REGION")
+S3_ENDPOINT = os.getenv("S3_ENDPOINT")
+S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL")  # optional base URL for public access
+
+def s3_client():
+    if not S3_BUCKET:
+        return None
+    return boto3.client(
+        "s3",
+        region_name=S3_REGION,
+        endpoint_url=S3_ENDPOINT or None,
+    )
 
 
 def create_stub_clip(frame_path: Path, dest_path: Path, duration: float = 10.0, fps: int = 5) -> bool:
@@ -50,6 +66,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("query")
     parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--video-id", type=str, default=None)
     args = parser.parse_args()
 
     def filter_non_overlapping(items, window: float = 10.0, limit: int = 10):
@@ -71,6 +88,8 @@ def main() -> int:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
         raw_results = search_videos(args.query, top_k=args.top_k)
+        if args.video_id:
+            raw_results = [r for r in raw_results if r.get("video_id") == args.video_id]
         results = filter_non_overlapping(raw_results, window=10.0, limit=10)
         if results:
             # Hash filenames before saving to avoid long names and clashes
@@ -98,6 +117,7 @@ def main() -> int:
 
     results_dir = PROJECT_ROOT / "results_video"
     images_dir = PROJECT_ROOT / "results"
+    s3 = s3_client()
     enriched = []
     for i, result in enumerate(results, 1):
         timestamp = float(result.get("timestamp", 0.0))
@@ -118,7 +138,17 @@ def main() -> int:
 
         image_filename = f"{hash_name}.jpg"
         image_path = images_dir / image_filename
-        image_url = f"/results/{image_filename}" if image_path.exists() else None
+        image_url = None
+        if image_path.exists():
+            if s3:
+                key = f"results/{image_filename}"
+                s3.upload_file(str(image_path), S3_BUCKET, key, ExtraArgs={"ContentType": "image/jpeg"})
+                if S3_PUBLIC_URL:
+                    image_url = f"{S3_PUBLIC_URL.rstrip('/')}/{key}"
+                else:
+                    image_url = f"/results/{image_filename}"
+            else:
+                image_url = f"/results/{image_filename}"
         enriched.append({**result, "clip_url": clip_url, "image_url": image_url})
 
     clip_count = sum(1 for item in enriched if item.get("clip_url"))
