@@ -32,7 +32,6 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean)
-  .concat(['http://localhost:5173', 'http://localhost:5175', 'https://vidgrep.vercel.app'])
 
 const corsOptions = {
   origin: (origin, callback) => {

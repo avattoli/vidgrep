@@ -4,7 +4,7 @@ import './Home.css'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'https://vidgrep.onrender.com'
+const API_BASE = '/api/proxy'
 
 export default function Home() {
     const [isDragging, setIsDragging] = useState(false)
@@ -37,7 +37,7 @@ export default function Home() {
 
         const loadStatus = async () => {
             try {
-        const response = await fetch('http://localhost:5175/api/status', {
+        const response = await fetch(`${API_BASE}/status`, {
                     signal: controller.signal
                 })
                 const payload = await response.json().catch(() => ({}))
@@ -105,7 +105,7 @@ export default function Home() {
 
         try {
             // 1) init
-            const initRes = await fetch(`${API_BASE}/api/upload/init`, {
+            const initRes = await fetch(`${API_BASE}/upload/init`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: file.name, size: file.size })
@@ -122,7 +122,7 @@ export default function Home() {
                 const start = i * chunkSize
                 const end = Math.min(file.size, start + chunkSize)
                 const blob = file.slice(start, end)
-                const chunkRes = await fetch(`${API_BASE}/api/upload/chunk`, {
+                const chunkRes = await fetch(`${API_BASE}/upload/chunk`, {
                     method: 'POST',
                     headers: {
                         'upload-id': uploadId,
@@ -140,7 +140,7 @@ export default function Home() {
             }
 
             // 3) complete + enqueue ingest job
-            const completeRes = await fetch(`${API_BASE}/api/upload/complete`, {
+            const completeRes = await fetch(`${API_BASE}/upload/complete`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uploadId })
@@ -159,7 +159,7 @@ export default function Home() {
             if (jobPollRef.current) clearInterval(jobPollRef.current)
             jobPollRef.current = setInterval(async () => {
                 try {
-                    const jr = await fetch(`${API_BASE}/api/job/${job}`)
+                    const jr = await fetch(`${API_BASE}/job/${job}`)
                     const jj = await jr.json().catch(() => ({}))
                     if (!jr.ok) return
                     setJobStatus(jj.status || null)

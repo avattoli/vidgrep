@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 import './Chat.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5175'
+const API_BASE = '/api/proxy'
 
 type SearchResult = {
   video_id?: string
@@ -27,13 +27,16 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null)
   const [hasData, setHasData] = useState<boolean | null>(null)
   const [datasetInfo, setDatasetInfo] = useState<string | null>(null)
+  const [videos, setVideos] = useState<{ video_id: string; count: number }[]>([])
+  const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
 
     const loadStatus = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/status`, {
+        const response = await fetch(`${API_BASE}/status`, {
           signal: controller.signal
         })
         const payload = await response.json().catch(() => ({}))
@@ -63,6 +66,30 @@ export default function Chat() {
     return () => controller.abort()
   }, [])
 
+  const loadVideos = useCallback(async () => {
+    const controller = new AbortController()
+    try {
+      const r = await fetch(`${API_BASE}/videos`, { signal: controller.signal })
+      const j = await r.json().catch(() => ({}))
+      const list = Array.isArray(j.videos) ? j.videos : []
+      setVideos(list)
+      if (list.length > 0) {
+        if (!selectedVideo || !list.find((v) => v.video_id === selectedVideo)) {
+          setSelectedVideo(list[0].video_id)
+        }
+      } else {
+        setSelectedVideo(null)
+      }
+    } catch {
+      // ignore
+    }
+    return () => controller.abort()
+  }, [selectedVideo])
+
+  useEffect(() => {
+    loadVideos()
+  }, [loadVideos])
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const trimmed = query.trim()
@@ -73,14 +100,14 @@ export default function Chat() {
     setIsLoading(true)
     setError(null)
     setResults([])
-    setMessages((prev) => [...prev, { role: 'user', content: trimmed }])
+    setMessages((prev) => [...prev, { role: 'user', content: trimmed + (selectedVideo ? ` [${selectedVideo}]` : '') }])
     setQuery('')
 
     try {
-      const response = await fetch(`${API_BASE}/api/search`, {
+      const response = await fetch(`${API_BASE}/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: trimmed, top_k: 9 })
+        body: JSON.stringify({ query: trimmed, top_k: 9, video_id: selectedVideo || undefined })
       })
 
       const payload = await response.json().catch(() => ({}))
@@ -110,12 +137,34 @@ export default function Chat() {
     }
   }
 
+  const handleDelete = async () => {
+    if (!selectedVideo || deleteLoading) return
+    setDeleteLoading(true)
+    setError(null)
+    try {
+      const resp = await fetch(`${API_BASE}/video/${selectedVideo}/delete`, { method: 'POST' })
+      const json = await resp.json().catch(() => ({}))
+      if (!resp.ok) {
+        throw new Error(json?.error || 'Delete failed')
+      }
+      setMessages((prev) => [...prev, { role: 'assistant', content: `Deleted ${selectedVideo}. Rebuilding index (${json.remaining} videos enqueued).` }])
+      setResults([])
+      await loadVideos()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Delete failed'
+      setError(message)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
   return (
     <div className="chat-page">
       <header className="chat-header">
         <p className="eyebrow">VidGrep</p>
         <h1>Ask about your video</h1>
         <p className="subhead">Describe the moment you want to find.</p>
+        <p className="banner-warning">Notice: video playback is temporarily disabled; showing frames only.</p>
       </header>
 
       {datasetInfo ? <p className="subhead">{datasetInfo}</p> : null}
@@ -130,6 +179,31 @@ export default function Chat() {
           </div>
         ))}
       </section>
+
+      <div className="chat-filters">
+        <label className="filter-label">
+          Video:
+          <select
+            value={selectedVideo ?? ''}
+            onChange={(e) => setSelectedVideo(e.target.value || null)}
+            className="video-select"
+          >
+            {videos.map((v) => (
+              <option key={v.video_id} value={v.video_id}>
+                {v.video_id} ({v.count})
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button
+          variant="ghost"
+          size="sm"
+          isDisabled={!selectedVideo || deleteLoading}
+          onPress={handleDelete}
+        >
+          {deleteLoading ? 'Deleting...' : 'Delete video'}
+        </Button>
+      </div>
 
       <form className="chat-form" onSubmit={handleSubmit}>
         <input
@@ -154,30 +228,21 @@ export default function Chat() {
       <section className="results-grid">
         {results.map((result, index) => {
           const startTime = Math.max(0, Number(result.timestamp ?? 0))
-          const src = result.clip_url
-            ? `${API_BASE}${result.clip_url}`
-            : result.video_url
-              ? `${API_BASE}${result.video_url}#t=${startTime.toFixed(2)}`
-              : null
+          const imageSrc = result.image_url ? `${API_BASE}${result.image_url}` : null
           const key = `${result.video_id ?? 'video'}-${index}`
 
           return (
             <div key={key} className="result-card">
-              {src ? (
-                <video className="result-video" controls preload="metadata" src={src}>
-                  Your browser does not support the video tag.
-                </video>
+              {imageSrc ? (
+                <div className="frame-wrapper">
+                  <img className="result-image" src={imageSrc} alt="Result frame" />
+                  <span className="timestamp-chip">{startTime.toFixed(2)}s</span>
+                </div>
               ) : (
-                <div className="result-missing">Video unavailable</div>
+                <div className="result-missing">Frame unavailable</div>
               )}
-              {src ? (
-                <a className="result-link" href={src} target="_blank" rel="noreferrer">
-                  Open video in new tab
-                </a>
-              ) : null}
               <div className="result-meta">
                 <span>{result.video_id ?? 'Video'}</span>
-                <span>{startTime.toFixed(2)}s</span>
               </div>
             </div>
           )
