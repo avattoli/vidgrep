@@ -6,6 +6,18 @@ const readBody = (req) =>
     req.on('error', reject)
   })
 
+const resolveTargetPath = (req) => {
+  const host = req.headers?.host || 'localhost'
+  const url = new URL(req.url || '/', `http://${host}`)
+  const explicit = url.searchParams.get('path')
+  if (explicit) {
+    return explicit.startsWith('/') ? explicit : `/${explicit}`
+  }
+  const stripped = url.pathname.replace('/api/proxy', '')
+  const basePath = stripped.startsWith('/') ? stripped : `/${stripped}`
+  return url.search ? `${basePath}${url.search}` : basePath
+}
+
 export default async function handler(req, res) {
   const base = (process.env.VITE_API_BASE || '').replace(/\/$/, '')
   if (!base) {
@@ -13,7 +25,7 @@ export default async function handler(req, res) {
   }
 
   const method = req.method || 'GET'
-  const targetPath = (req.url || '').replace('/api/proxy', '')
+  const targetPath = resolveTargetPath(req)
   const url = `${base}${targetPath}`
 
   const headers = {}

@@ -4,6 +4,7 @@ import { Loading } from '../components/Loading'
 import './Chat.css'
 
 const API_BASE = '/api/proxy'
+const proxyUrl = (path: string) => `${API_BASE}?path=${encodeURIComponent(path)}`
 
 type SearchResult = {
   video_id?: string
@@ -36,7 +37,7 @@ export default function Chat() {
 
     const loadStatus = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/status`, {
+        const response = await fetch(proxyUrl('/api/status'), {
           signal: controller.signal
         })
         const payload = await response.json().catch(() => ({}))
@@ -69,7 +70,7 @@ export default function Chat() {
   const loadVideos = useCallback(async () => {
     const controller = new AbortController()
     try {
-      const r = await fetch(`${API_BASE}/api/videos`, { signal: controller.signal })
+      const r = await fetch(proxyUrl('/api/videos'), { signal: controller.signal })
       const j = await r.json().catch(() => ({}))
       const list = Array.isArray(j.videos) ? j.videos : []
       setVideos(list)
@@ -104,7 +105,7 @@ export default function Chat() {
     setQuery('')
 
     try {
-      const response = await fetch(`${API_BASE}/api/search`, {
+      const response = await fetch(proxyUrl('/api/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed, top_k: 9, video_id: selectedVideo || undefined })
@@ -142,7 +143,7 @@ export default function Chat() {
     setDeleteLoading(true)
     setError(null)
     try {
-      const resp = await fetch(`${API_BASE}/api/video/${selectedVideo}/delete`, { method: 'POST' })
+      const resp = await fetch(proxyUrl(`/api/video/${selectedVideo}/delete`), { method: 'POST' })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         throw new Error(json?.error || 'Delete failed')
@@ -228,7 +229,7 @@ export default function Chat() {
       <section className="results-grid">
         {results.map((result, index) => {
           const startTime = Math.max(0, Number(result.timestamp ?? 0))
-          const imageSrc = result.image_url ? `${API_BASE}${result.image_url}` : null
+          const imageSrc = result.image_url ? proxyUrl(result.image_url) : null
           const key = `${result.video_id ?? 'video'}-${index}`
 
           return (
