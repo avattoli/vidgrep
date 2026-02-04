@@ -36,7 +36,7 @@ export default function Chat() {
 
     const loadStatus = async () => {
       try {
-        const response = await fetch(`${API_BASE}/status`, {
+        const response = await fetch(`${API_BASE}/api/status`, {
           signal: controller.signal
         })
         const payload = await response.json().catch(() => ({}))
@@ -69,7 +69,7 @@ export default function Chat() {
   const loadVideos = useCallback(async () => {
     const controller = new AbortController()
     try {
-      const r = await fetch(`${API_BASE}/videos`, { signal: controller.signal })
+      const r = await fetch(`${API_BASE}/api/videos`, { signal: controller.signal })
       const j = await r.json().catch(() => ({}))
       const list = Array.isArray(j.videos) ? j.videos : []
       setVideos(list)
@@ -104,7 +104,7 @@ export default function Chat() {
     setQuery('')
 
     try {
-      const response = await fetch(`${API_BASE}/search`, {
+      const response = await fetch(`${API_BASE}/api/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed, top_k: 9, video_id: selectedVideo || undefined })
@@ -142,7 +142,7 @@ export default function Chat() {
     setDeleteLoading(true)
     setError(null)
     try {
-      const resp = await fetch(`${API_BASE}/video/${selectedVideo}/delete`, { method: 'POST' })
+      const resp = await fetch(`${API_BASE}/api/video/${selectedVideo}/delete`, { method: 'POST' })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         throw new Error(json?.error || 'Delete failed')
