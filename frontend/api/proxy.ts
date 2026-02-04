@@ -51,12 +51,30 @@ export default async function handler(req, res) {
     }
   }
 
-  const response = await fetch(url, { method, headers, body })
+  let response
+  try {
+    response = await fetch(url, { method, headers, body })
+  } catch (err) {
+    return res.status(502).json({
+      error: 'Upstream fetch failed',
+      detail: String(err),
+      url
+    })
+  }
+
   res.status(response.status)
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() === 'transfer-encoding') return
     res.setHeader(key, value)
   })
-  const buffer = Buffer.from(await response.arrayBuffer())
-  res.send(buffer)
+  try {
+    const buffer = Buffer.from(await response.arrayBuffer())
+    res.send(buffer)
+  } catch (err) {
+    return res.status(502).json({
+      error: 'Failed to read upstream response',
+      detail: String(err),
+      url
+    })
+  }
 }
