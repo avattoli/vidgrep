@@ -4,8 +4,8 @@ import './Home.css'
 import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 
-const API_BASE = '/api/proxy'
-const proxyUrl = (path: string) => `${API_BASE}?path=${encodeURIComponent(path)}`
+const API_BASE = import.meta.env.VITE_API_BASE || ''
+const apiUrl = (path: string) => `${API_BASE}${path}`
 
 export default function Home() {
     const [isDragging, setIsDragging] = useState(false)
@@ -19,6 +19,7 @@ export default function Home() {
     const [existingCount, setExistingCount] = useState<number | null>(null)
     const [uploadProgress, setUploadProgress] = useState<number>(0)
     const [jobStatus, setJobStatus] = useState<string | null>(null)
+    const [ingestProgress, setIngestProgress] = useState<number>(0)
     const [, setJobId] = useState<string | null>(null)
     const jobPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const navigate = useNavigate()
@@ -38,7 +39,7 @@ export default function Home() {
 
         const loadStatus = async () => {
             try {
-                const response = await fetch(proxyUrl('/api/status'), {
+                const response = await fetch(apiUrl('/api/status'), {
                     signal: controller.signal
                 })
                 const payload = await response.json().catch(() => ({}))
@@ -102,11 +103,12 @@ export default function Home() {
         setUploadMessage(null)
         setUploadProgress(0)
         setJobStatus(null)
+        setIngestProgress(0)
         setJobId(null)
 
         try {
             // 1) init
-            const initRes = await fetch(proxyUrl('/api/upload/init'), {
+            const initRes = await fetch(apiUrl('/api/upload/init'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: file.name, size: file.size })
@@ -123,7 +125,7 @@ export default function Home() {
                 const start = i * chunkSize
                 const end = Math.min(file.size, start + chunkSize)
                 const blob = file.slice(start, end)
-                const chunkRes = await fetch(proxyUrl('/api/upload/chunk'), {
+                const chunkRes = await fetch(apiUrl('/api/upload/chunk'), {
                     method: 'POST',
                     headers: {
                         'upload-id': uploadId,
@@ -141,7 +143,7 @@ export default function Home() {
             }
 
             // 3) complete + enqueue ingest job
-            const completeRes = await fetch(proxyUrl('/api/upload/complete'), {
+            const completeRes = await fetch(apiUrl('/api/upload/complete'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uploadId })
@@ -160,18 +162,23 @@ export default function Home() {
             if (jobPollRef.current) clearInterval(jobPollRef.current)
             jobPollRef.current = setInterval(async () => {
                 try {
-                    const jr = await fetch(proxyUrl(`/api/job/${job}`))
+                    const jr = await fetch(apiUrl(`/api/job/${job}`))
                     const jj = await jr.json().catch(() => ({}))
                     if (!jr.ok) return
-                    setJobStatus(jj.status || null)
+                    setJobStatus(jj.stage || jj.status || null)
+                    if (typeof jj.progress === 'number') {
+                        const clamped = Math.max(0, Math.min(100, jj.progress))
+                        setIngestProgress(clamped)
+                    }
                     if (jj.status === 'done') {
                         setIsUploaded(true)
-                        setUploadMessage('Processing finished. Click the preview to ask a question.')
+                        setUploadMessage('Ingest complete. Click the preview to ask a question.')
                         clearInterval(jobPollRef.current!)
                         jobPollRef.current = null
                     }
                     if (jj.status === 'error') {
                         setUploadError(jj.error || 'Ingest failed')
+                        setIngestProgress(0)
                         clearInterval(jobPollRef.current!)
                         jobPollRef.current = null
                     }
@@ -262,7 +269,12 @@ export default function Home() {
             {uploadProgress > 0 && uploadProgress < 100 ? (
                 <p className="upload-progress">Uploading... {uploadProgress}%</p>
             ) : null}
-            {jobStatus ? <p className="upload-message">Ingest: {jobStatus}</p> : null}
+            {jobStatus ? (
+                <p className="upload-message">
+                    Ingest: {jobStatus}
+                    {ingestProgress > 0 ? ` (${ingestProgress}%)` : ''}
+                </p>
+            ) : null}
 
 
             {previewUrl ? (

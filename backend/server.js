@@ -16,11 +16,31 @@ const framesDir = path.join(dataDir, 'frames')
 const indexDir = path.join(dataDir, 'index')
 const metadataDir = path.join(dataDir, 'metadata')
 const metadataPath = path.join(metadataDir, 'metadata.json')
+const originalNamesPath = path.join(metadataDir, 'original_names.json')
 const indexPath = path.join(indexDir, 'faiss.index')
 const resultsDir = path.join(projectRoot, 'results')
 const resultsVideoDir = path.join(projectRoot, 'results_video')
 const uploadsDir = path.join(dataDir, 'uploads')
 const videoExtensions = new Set(['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv'])
+
+const readOriginalNames = () => {
+  try {
+    if (!fs.existsSync(originalNamesPath)) return {}
+    const raw = fs.readFileSync(originalNamesPath, 'utf-8')
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const writeOriginalNames = (map) => {
+  try {
+    fs.writeFileSync(originalNamesPath, JSON.stringify(map, null, 2))
+  } catch {
+    // ignore write errors
+  }
+}
 
 for (const dir of [dataDir, videosDir, framesDir, indexDir, metadataDir, resultsDir, resultsVideoDir, uploadsDir]) {
   fs.mkdirSync(dir, { recursive: true })
@@ -32,6 +52,7 @@ const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean)
+  .concat(['http://localhost:5173', 'http://localhost:5175'])
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -104,7 +125,15 @@ let processing = false
 
 const enqueueIngest = (filePath, originalName) => {
   const jobId = crypto.randomUUID().replace(/-/g, '')
-  jobs.set(jobId, { id: jobId, status: 'queued', filePath, originalName, error: null })
+  jobs.set(jobId, {
+    id: jobId,
+    status: 'queued',
+    stage: 'queued',
+    progress: 0,
+    filePath,
+    originalName,
+    error: null
+  })
   queue.push(jobId)
   processQueue()
   return jobId
@@ -117,7 +146,7 @@ const processQueue = () => {
   const job = jobs.get(jobId)
   if (!job) return processQueue()
   processing = true
-  jobs.set(jobId, { ...job, status: 'processing' })
+  jobs.set(jobId, { ...job, status: 'processing', stage: 'starting', progress: 0 })
 
   const proc = spawn(pythonBin, ['ingest.py', job.filePath], {
     cwd: projectRoot,
@@ -125,7 +154,34 @@ const processQueue = () => {
   })
 
   let stderr = ''
+  let stdoutBuffer = ''
   proc.stderr.on('data', (d) => (stderr += d.toString()))
+  proc.stdout.on('data', (d) => {
+    const chunk = d.toString()
+    stdoutBuffer += chunk
+    const lines = stdoutBuffer.split('\n')
+    stdoutBuffer = lines.pop() || ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('__PROGRESS__')) continue
+      const payload = trimmed.replace('__PROGRESS__', '').trim()
+      try {
+        const parsed = JSON.parse(payload)
+        const nextProgress = typeof parsed.progress === 'number' ? Math.max(0, Math.min(100, parsed.progress)) : undefined
+        const nextStage = typeof parsed.stage === 'string' ? parsed.stage : undefined
+        const current = jobs.get(jobId)
+        if (current) {
+          jobs.set(jobId, {
+            ...current,
+            progress: nextProgress ?? current.progress ?? 0,
+            stage: nextStage ?? current.stage ?? 'processing'
+          })
+        }
+      } catch {
+        // ignore malformed progress lines
+      }
+    }
+  })
 
   proc.on('close', (code) => {
     if (code === 0) {
@@ -135,9 +191,11 @@ const processQueue = () => {
       } catch {
         // ignore delete errors
       }
-      jobs.set(jobId, { ...job, status: 'done', error: null })
+      const current = jobs.get(jobId) || job
+      jobs.set(jobId, { ...current, status: 'done', stage: 'done', progress: 100, error: null })
     } else {
-      jobs.set(jobId, { ...job, status: 'error', error: stderr || `Exited ${code}` })
+      const current = jobs.get(jobId) || job
+      jobs.set(jobId, { ...current, status: 'error', stage: 'error', progress: 0, error: stderr || `Exited ${code}` })
     }
     processing = false
     processQueue()
@@ -154,11 +212,18 @@ app.get('/api/job/:id', (req, res) => {
 const activeUploads = new Map()
 
 app.post('/api/upload/init', (req, res) => {
-  const { filename = 'upload.mp4' } = req.body || {}
+  const { filename = 'upload.mp4', size } = req.body || {}
   const ext = path.extname(filename) || '.mp4'
   const uploadId = crypto.randomUUID().replace(/-/g, '')
   const tempPath = path.join(uploadsDir, `${uploadId}${ext}.part`)
-  activeUploads.set(uploadId, { filename, tempPath, ext, received: 0 })
+  activeUploads.set(uploadId, {
+    filename,
+    tempPath,
+    ext,
+    received: 0,
+    size: typeof size === 'number' ? size : null,
+    createdAt: Date.now()
+  })
   res.json({ uploadId, chunkSize: 5 * 1024 * 1024 })
 })
 
@@ -185,17 +250,30 @@ app.post('/api/upload/complete', (req, res) => {
   const meta = activeUploads.get(uploadId)
   if (!meta) return res.status(400).json({ error: 'Unknown uploadId' })
 
+  if (!fs.existsSync(meta.tempPath) || meta.received <= 0) {
+    activeUploads.delete(uploadId)
+    return res.status(400).json({ error: 'No data received for uploadId' })
+  }
+  if (meta.size && meta.received < meta.size) {
+    return res.status(400).json({ error: 'Upload incomplete', received: meta.received, expected: meta.size })
+  }
+
   const unique = crypto.randomUUID().replace(/-/g, '')
   const finalPath = path.join(videosDir, `${unique}${meta.ext || '.mp4'}`)
   try {
     fs.renameSync(meta.tempPath, finalPath)
   } catch (err) {
+    activeUploads.delete(uploadId)
     return res.status(500).json({ error: String(err) })
   }
 
+  const nameMap = readOriginalNames()
+  nameMap[unique] = meta.filename
+  writeOriginalNames(nameMap)
+
   activeUploads.delete(uploadId)
   const jobId = enqueueIngest(finalPath, meta.filename)
-  res.json({ ok: true, videoId: unique, jobId })
+  res.json({ ok: true, videoId: unique, jobId, originalName: meta.filename })
 })
 
 app.get('/api/status', (_req, res) => {
@@ -334,12 +412,18 @@ app.get('/api/videos', (_req, res) => {
     const metaPath = path.join(metadataDir, 'metadata.json')
     if (!fs.existsSync(metaPath)) return res.json({ videos: [] })
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+    const nameMap = readOriginalNames()
     const byId = {}
     for (const m of meta) {
       const vid = m.video_id
       if (!vid) continue
       if (!byId[vid]) {
-        byId[vid] = { video_id: vid, count: 0, video_path: m.video_path || null }
+        byId[vid] = {
+          video_id: vid,
+          count: 0,
+          video_path: m.video_path || null,
+          original_name: nameMap[vid] || null
+        }
       }
       byId[vid].count += 1
     }
@@ -375,6 +459,11 @@ app.post('/api/video/:id/delete', (req, res) => {
 
     proc.on('close', (code) => {
       if (code === 0) {
+        const nameMap = readOriginalNames()
+        if (nameMap[videoId]) {
+          delete nameMap[videoId]
+          writeOriginalNames(nameMap)
+        }
         try {
           const payload = JSON.parse(stdout || '{}')
           res.json({ ok: true, ...payload })

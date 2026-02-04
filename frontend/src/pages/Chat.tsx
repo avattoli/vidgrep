@@ -3,8 +3,13 @@ import { Button } from '@heroui/react'
 import { Loading } from '../components/Loading'
 import './Chat.css'
 
-const API_BASE = '/api/proxy'
-const proxyUrl = (path: string) => `${API_BASE}?path=${encodeURIComponent(path)}`
+const API_BASE = import.meta.env.VITE_API_BASE || ''
+const apiUrl = (path: string) => `${API_BASE}${path}`
+const assetUrl = (path?: string | null) => {
+  if (!path) return null
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  return `${API_BASE}${path}`
+}
 
 type SearchResult = {
   video_id?: string
@@ -28,7 +33,7 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null)
   const [hasData, setHasData] = useState<boolean | null>(null)
   const [datasetInfo, setDatasetInfo] = useState<string | null>(null)
-  const [videos, setVideos] = useState<{ video_id: string; count: number }[]>([])
+  const [videos, setVideos] = useState<{ video_id: string; count: number; original_name?: string | null }[]>([])
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
 
@@ -37,7 +42,7 @@ export default function Chat() {
 
     const loadStatus = async () => {
       try {
-        const response = await fetch(proxyUrl('/api/status'), {
+        const response = await fetch(apiUrl('/api/status'), {
           signal: controller.signal
         })
         const payload = await response.json().catch(() => ({}))
@@ -70,7 +75,7 @@ export default function Chat() {
   const loadVideos = useCallback(async () => {
     const controller = new AbortController()
     try {
-      const r = await fetch(proxyUrl('/api/videos'), { signal: controller.signal })
+      const r = await fetch(apiUrl('/api/videos'), { signal: controller.signal })
       const j = await r.json().catch(() => ({}))
       const list = Array.isArray(j.videos) ? j.videos : []
       setVideos(list)
@@ -105,7 +110,7 @@ export default function Chat() {
     setQuery('')
 
     try {
-      const response = await fetch(proxyUrl('/api/search'), {
+      const response = await fetch(apiUrl('/api/search'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: trimmed, top_k: 9, video_id: selectedVideo || undefined })
@@ -143,12 +148,17 @@ export default function Chat() {
     setDeleteLoading(true)
     setError(null)
     try {
-      const resp = await fetch(proxyUrl(`/api/video/${selectedVideo}/delete`), { method: 'POST' })
+      const resp = await fetch(apiUrl(`/api/video/${selectedVideo}/delete`), { method: 'POST' })
       const json = await resp.json().catch(() => ({}))
       if (!resp.ok) {
         throw new Error(json?.error || 'Delete failed')
       }
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Deleted ${selectedVideo}. Rebuilding index (${json.remaining} videos enqueued).` }])
+      const displayName =
+        videos.find((v) => v.video_id === selectedVideo)?.original_name || selectedVideo
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `Deleted ${displayName}. Rebuilding index (${json.remaining} videos enqueued).` }
+      ])
       setResults([])
       await loadVideos()
     } catch (err) {
@@ -191,7 +201,7 @@ export default function Chat() {
           >
             {videos.map((v) => (
               <option key={v.video_id} value={v.video_id}>
-                {v.video_id} ({v.count})
+                {v.original_name || v.video_id} ({v.count})
               </option>
             ))}
           </select>
@@ -229,7 +239,7 @@ export default function Chat() {
       <section className="results-grid">
         {results.map((result, index) => {
           const startTime = Math.max(0, Number(result.timestamp ?? 0))
-          const imageSrc = result.image_url ? proxyUrl(result.image_url) : null
+          const imageSrc = assetUrl(result.image_url)
           const key = `${result.video_id ?? 'video'}-${index}`
 
           return (

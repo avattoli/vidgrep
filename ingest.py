@@ -10,6 +10,18 @@ from pathlib import Path
 from PIL import Image
 from typing import List, Dict
 from tqdm import tqdm
+import json
+
+PROGRESS_PREFIX = "__PROGRESS__"
+
+
+def emit_progress(progress: int, stage: str):
+    try:
+        payload = {"progress": int(progress), "stage": stage}
+        print(f"{PROGRESS_PREFIX} {json.dumps(payload)}", flush=True)
+    except Exception:
+        # Never fail ingestion due to progress reporting
+        pass
 import config
 from models import EmbeddingModel
 from vector_store import VectorStore
@@ -46,6 +58,7 @@ def extract_frames(video_path: Path, output_dir: Path, interval_seconds: float =
     frame_data = []
     frame_count = 0
     extracted_count = 0
+    last_progress = -1
     
     print(f"Extracting frames from {video_path.name} (duration: {duration:.2f}s, fps: {fps:.2f})")
     
@@ -80,8 +93,15 @@ def extract_frames(video_path: Path, output_dir: Path, interval_seconds: float =
             extracted_count += 1
         
         frame_count += 1
+
+        if total_frames > 0:
+            progress = int((frame_count / total_frames) * 30)
+            if progress > last_progress:
+                emit_progress(progress, "extracting")
+                last_progress = progress
     
     cap.release()
+    emit_progress(30, "extracting")
     print(f"Extracted {extracted_count} frames from {video_path.name}")
     return frame_data
 
@@ -111,8 +131,11 @@ def process_video(video_path: Path, embedding_model: EmbeddingModel, vector_stor
     all_embeddings = []
     metadata_list = []
     
-    print(f"Encoding {len(frame_data)} frames...")
-    for i in tqdm(range(0, len(frame_data), batch_size), desc="Encoding frames"):
+    total_frames = len(frame_data)
+    print(f"Encoding {total_frames} frames...")
+    processed = 0
+    last_progress = 30
+    for i in tqdm(range(0, total_frames, batch_size), desc="Encoding frames"):
         batch = frame_data[i:i + batch_size]
         images = [item['frame_image'] for item in batch]
         
@@ -126,11 +149,17 @@ def process_video(video_path: Path, embedding_model: EmbeddingModel, vector_stor
                 'frame_path': item['frame_path'],
                 'video_path': str(video_path)
             })
+
+        processed += len(batch)
+        progress = 30 + int((processed / total_frames) * 70)
+        if progress > last_progress:
+            emit_progress(progress, "encoding")
+            last_progress = progress
     
     all_embeddings = np.vstack(all_embeddings)
     
     vector_store.add_embeddings(all_embeddings, metadata_list)
-    
+    emit_progress(100, "done")
     return len(frame_data)
 
 
@@ -148,6 +177,7 @@ def ingest_videos(video_paths: List[Path], vector_store: VectorStore = None):
     embedding_model = EmbeddingModel()
     
     total_frames = 0
+    emit_progress(0, "starting")
     for video_path in video_paths:
         if not video_path.exists():
             print(f"Warning: Video not found: {video_path}")
