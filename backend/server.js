@@ -263,24 +263,33 @@ app.post('/api/upload/complete', (req, res) => {
 
 app.get('/api/status', (_req, res) => {
   let videoCount = 0
-  try {
-    if (fs.existsSync(videosDir)) {
-      const entries = fs.readdirSync(videosDir)
-      videoCount = entries.filter((entry) => videoExtensions.has(path.extname(entry).toLowerCase())).length
-    }
-  } catch {
-    videoCount = 0
-  }
-
   let embeddings = 0
-  const hasMetadata = fs.existsSync(metadataPath)
+  let hasMetadata = fs.existsSync(metadataPath)
+
   if (hasMetadata) {
     try {
       const raw = fs.readFileSync(metadataPath, 'utf-8')
       const parsed = JSON.parse(raw)
-      embeddings = Array.isArray(parsed) ? parsed.length : 0
+      if (Array.isArray(parsed)) {
+        embeddings = parsed.length
+        const ids = new Set(parsed.map((m) => m?.video_id).filter(Boolean))
+        videoCount = ids.size
+      } else {
+        hasMetadata = false
+      }
     } catch {
-      embeddings = 0
+      hasMetadata = false
+    }
+  }
+
+  if (!hasMetadata) {
+    try {
+      if (fs.existsSync(videosDir)) {
+        const entries = fs.readdirSync(videosDir)
+        videoCount = entries.filter((entry) => videoExtensions.has(path.extname(entry).toLowerCase())).length
+      }
+    } catch {
+      videoCount = 0
     }
   }
 
