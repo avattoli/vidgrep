@@ -74,7 +74,7 @@ export default function Chat() {
       const list = Array.isArray(j.videos) ? j.videos : []
       setVideos(list)
       if (list.length > 0) {
-        if (!selectedVideo || !list.find((v) => v.video_id === selectedVideo)) {
+        if (!selectedVideo || !list.find((v: { video_id: string }) => v.video_id === selectedVideo)) {
           setSelectedVideo(list[0].video_id)
         }
       } else {
